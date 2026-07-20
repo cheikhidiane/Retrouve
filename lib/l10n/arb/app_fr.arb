@@ -1,0 +1,10 @@
+{
+  "@@locale": "fr",
+  "counterAppBarTitle": "Compteur",
+  "@counterAppBarTitle": {
+    "description": "Texte affiché dans la barre d’application de la page Compteur"
+  },
+  "invalidEmail": "Adresse e-mail invalide",
+  "invalidPassword": "Le mot de passe doit comporter au moins 8 caractères et contenir au moins une lettre et un chiffre",
+  "confirmPasswordMismatch": "La confirmation du mot de passe ne correspond pas"
+}
