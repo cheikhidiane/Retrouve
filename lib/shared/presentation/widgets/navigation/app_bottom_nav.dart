@@ -15,6 +15,7 @@ class AppBottomNav extends StatelessWidget {
   static const _items = [
     _NavItem(icon: Icons.home_outlined, activeIcon: Icons.home, label: 'Accueil'),
     _NavItem(icon: Icons.search_outlined, activeIcon: Icons.search, label: 'Recherche'),
+    _NavItem(icon: Icons.chat_bubble_outline, activeIcon: Icons.chat_bubble, label: 'Messages'),
     _NavItem(icon: Icons.notifications_outlined, activeIcon: Icons.notifications, label: 'Alertes'),
     _NavItem(icon: Icons.person_outline, activeIcon: Icons.person, label: 'Profil'),
   ];

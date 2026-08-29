@@ -1,27 +1,41 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:template/core/utils/colors.dart';
 import 'package:template/core/utils/text_styles.dart';
+import 'package:template/features/auth/presentation/blocs/auth_cubit.dart';
+import 'package:template/injector.dart';
 import 'package:template/shared/presentation/widgets/buttons/app_primary_button.dart';
 import 'package:template/shared/presentation/widgets/inputs/app_text_field.dart';
 import 'package:template/shared/presentation/widgets/layout/app_scaffold.dart';
 
-class RegisterPage extends StatefulWidget {
+class RegisterPage extends StatelessWidget {
   const RegisterPage({super.key});
 
   @override
-  State<RegisterPage> createState() => _RegisterPageState();
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (_) => getIt<AuthCubit>(),
+      child: const _RegisterView(),
+    );
+  }
 }
 
-class _RegisterPageState extends State<RegisterPage> {
+class _RegisterView extends StatefulWidget {
+  const _RegisterView();
+
+  @override
+  State<_RegisterView> createState() => _RegisterViewState();
+}
+
+class _RegisterViewState extends State<_RegisterView> {
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _obscurePassword = true;
-  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -34,41 +48,52 @@ class _RegisterPageState extends State<RegisterPage> {
 
   void _submit() {
     if (_formKey.currentState?.validate() ?? false) {
-      setState(() => _isLoading = true);
-      Future.delayed(const Duration(seconds: 1), () {
-        if (mounted) {
-          setState(() => _isLoading = false);
-          context.goNamed('home');
-        }
-      });
+      context.read<AuthCubit>().register(
+            name: _nameCtrl.text.trim(),
+            email: _emailCtrl.text.trim(),
+            password: _passwordCtrl.text,
+          );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return AppScaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(horizontal: 24.w),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(height: 24.h),
-                _buildHeader(),
-                SizedBox(height: 40.h),
-                _buildForm(),
-                SizedBox(height: 32.h),
-                AppPrimaryButton(
-                  label: 'Créer mon compte',
-                  onPressed: _submit,
-                  isLoading: _isLoading,
-                ),
-                SizedBox(height: 24.h),
-                _buildLoginLink(),
-                SizedBox(height: 40.h),
-              ],
+    return BlocListener<AuthCubit, AuthState>(
+      listener: (context, state) {
+        if (state is AuthAuthenticated) {
+          context.goNamed('home');
+        } else if (state is AuthFailure) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(state.message)),
+          );
+        }
+      },
+      child: AppScaffold(
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.symmetric(horizontal: 24.w),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(height: 24.h),
+                  _buildHeader(),
+                  SizedBox(height: 40.h),
+                  _buildForm(),
+                  SizedBox(height: 32.h),
+                  BlocBuilder<AuthCubit, AuthState>(
+                    builder: (context, state) => AppPrimaryButton(
+                      label: 'Créer mon compte',
+                      onPressed: _submit,
+                      isLoading: state is AuthLoading,
+                    ),
+                  ),
+                  SizedBox(height: 24.h),
+                  _buildLoginLink(),
+                  SizedBox(height: 40.h),
+                ],
+              ),
             ),
           ),
         ),
@@ -155,8 +180,7 @@ class _RegisterPageState extends State<RegisterPage> {
           obscureText: _obscurePassword,
           prefixIcon: const Icon(Icons.lock_outline),
           suffixIcon: GestureDetector(
-            onTap: () =>
-                setState(() => _obscurePassword = !_obscurePassword),
+            onTap: () => setState(() => _obscurePassword = !_obscurePassword),
             child: Icon(
               _obscurePassword
                   ? Icons.visibility_outlined

@@ -3,6 +3,7 @@ import 'dart:developer';
 
 import 'package:bloc/bloc.dart';
 import 'package:flutter/widgets.dart';
+import 'package:template/core/demo/demo_seed.dart';
 import 'package:template/injector.dart';
 
 class AppBlocObserver extends BlocObserver {
@@ -26,6 +27,7 @@ Future<void> bootstrap(
   WidgetsFlutterBinding.ensureInitialized();
 
   await configureDependencies(environment: environment);
+  await seedDemoDataIfNeeded();
   FlutterError.onError = (details) {
     log(details.exceptionAsString(), stackTrace: details.stack);
   };

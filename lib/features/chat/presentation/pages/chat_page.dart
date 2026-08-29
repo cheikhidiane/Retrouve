@@ -3,11 +3,22 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:template/core/utils/colors.dart';
 import 'package:template/core/utils/text_styles.dart';
+import 'package:template/features/auth/domain/repositories/auth_repository.dart';
+import 'package:template/features/chat/domain/repositories/chat_repository.dart';
+import 'package:template/features/match/domain/repositories/match_repository.dart';
+import 'package:template/injector.dart';
+import 'package:template/shared/domain/entities/chat_message_entity.dart';
+import 'package:template/shared/domain/entities/item_entity.dart';
+import 'package:template/shared/domain/entities/match_entity.dart';
+import 'package:template/shared/domain/repositories/item_repository.dart';
 import 'package:template/shared/presentation/widgets/misc/app_avatar.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key, this.conversationId});
 
+  /// This is actually the matchId (the confirmed match this thread belongs
+  /// to), preserved as `conversationId` for backward-compat with the
+  /// original route wiring.
   final String? conversationId;
 
   @override
@@ -19,62 +30,39 @@ class _ChatPageState extends State<ChatPage> {
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
 
-  final _messages = <_Message>[
-    _Message(
-      id: '0',
-      text: 'Match confirmé le 24 mai 2026',
-      senderId: 'system',
-      timestamp: DateTime(2026, 5, 24, 14, 0),
-      isSystem: true,
-    ),
-    _Message(
-      id: '1',
-      text: 'Bonjour ! J\'ai bien trouvé votre iPhone 14 Pro. Il est en bon état.',
-      senderId: 'other',
-      timestamp: DateTime(2026, 5, 24, 14, 5),
-    ),
-    _Message(
-      id: '2',
-      text: 'Merci beaucoup ! Je le cherchais partout. Où pouvons-nous nous retrouver ?',
-      senderId: 'me',
-      timestamp: DateTime(2026, 5, 24, 14, 7),
-    ),
-    _Message(
-      id: '3',
-      text: 'Je suis disponible au Plateau demain matin vers 9h. Ça vous convient ?',
-      senderId: 'other',
-      timestamp: DateTime(2026, 5, 24, 14, 10),
-    ),
-    _Message(
-      id: '4',
-      text: 'Parfait, je serai là. Merci infiniment !',
-      senderId: 'me',
-      timestamp: DateTime(2026, 5, 24, 14, 12),
-    ),
-  ];
+  List<ChatMessageEntity> _messages = [];
+  MatchEntity? _match;
+  ItemEntity? _lostItem;
+  String? _myUserId;
+  bool _isSending = false;
+
+  String get _matchId => widget.conversationId ?? '';
 
   @override
-  void dispose() {
-    _messageCtrl.dispose();
-    _scrollCtrl.dispose();
-    _focusNode.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _load();
   }
 
-  void _sendMessage() {
-    final text = _messageCtrl.text.trim();
-    if (text.isEmpty) return;
-
+  Future<void> _load() async {
+    final me = await getIt<AuthRepository>().getCurrentUser();
+    final match = await getIt<MatchRepository>().getById(_matchId);
+    final messages = await getIt<ChatRepository>().getMessages(_matchId);
+    ItemEntity? lost;
+    if (match != null) {
+      lost = await getIt<ItemRepository>().getById(match.lostItemId);
+    }
+    if (!mounted) return;
     setState(() {
-      _messages.add(_Message(
-        id: '${_messages.length}',
-        text: text,
-        senderId: 'me',
-        timestamp: DateTime.now(),
-      ));
-      _messageCtrl.clear();
+      _myUserId = me?.id;
+      _match = match;
+      _messages = messages;
+      _lostItem = lost;
     });
+    _scrollToBottom();
+  }
 
+  void _scrollToBottom() {
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollCtrl.hasClients) {
         _scrollCtrl.animateTo(
@@ -84,6 +72,36 @@ class _ChatPageState extends State<ChatPage> {
         );
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _messageCtrl.dispose();
+    _scrollCtrl.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _messageCtrl.text.trim();
+    final senderId = _myUserId;
+    if (text.isEmpty || senderId == null || _isSending) return;
+
+    setState(() => _isSending = true);
+    _messageCtrl.clear();
+
+    final message = await getIt<ChatRepository>().sendMessage(
+      matchId: _matchId,
+      senderId: senderId,
+      text: text,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _messages = [..._messages, message];
+      _isSending = false;
+    });
+    _scrollToBottom();
   }
 
   @override
@@ -120,7 +138,7 @@ class _ChatPageState extends State<ChatPage> {
       ),
       title: Row(
         children: [
-          AppAvatar(name: 'Fatou Seck', size: 36),
+          const AppAvatar(name: 'Autre utilisateur', size: 36),
           SizedBox(width: 10.w),
           Expanded(
             child: Column(
@@ -128,11 +146,12 @@ class _ChatPageState extends State<ChatPage> {
               children: [
                 Row(
                   children: [
-                    Text('Fatou Seck', style: AppTextStyle.headlineSmall),
+                    Text('Autre utilisateur',
+                        style: AppTextStyle.headlineSmall),
                     SizedBox(width: 6.w),
                     Container(
-                      padding: EdgeInsets.symmetric(
-                          horizontal: 6.w, vertical: 2.h),
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
                       decoration: BoxDecoration(
                         color: AppColor.teal.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(6.r),
@@ -154,8 +173,8 @@ class _ChatPageState extends State<ChatPage> {
                   ],
                 ),
                 Text('En ligne',
-                    style: AppTextStyle.labelSmall
-                        .copyWith(color: AppColor.teal)),
+                    style:
+                        AppTextStyle.labelSmall.copyWith(color: AppColor.teal)),
               ],
             ),
           ),
@@ -165,6 +184,8 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Widget _buildMatchBanner() {
+    final title = _lostItem?.title ?? 'Objet';
+    final score = _match?.score ?? 0;
     return Container(
       margin: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
       padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
@@ -179,33 +200,43 @@ class _ChatPageState extends State<ChatPage> {
           SizedBox(width: 8.w),
           Expanded(
             child: Text(
-              'iPhone 14 Pro noir — Match 87%',
+              '$title — Match $score%',
               style: AppTextStyle.labelMedium.copyWith(color: AppColor.teal),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          Icon(Icons.chevron_right, color: AppColor.teal, size: 16.sp),
         ],
       ),
     );
   }
 
   Widget _buildMessageList() {
+    if (_messages.isEmpty) {
+      return Center(
+        child: Text(
+          'Aucun message pour le moment.\nDites bonjour !',
+          textAlign: TextAlign.center,
+          style: AppTextStyle.bodySmall,
+        ),
+      );
+    }
     return ListView.builder(
       controller: _scrollCtrl,
       padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
       itemCount: _messages.length,
       itemBuilder: (_, i) {
         final msg = _messages[i];
-        final showDate = i == 0 ||
-            _messages[i - 1].timestamp.day != msg.timestamp.day;
+        final showDate =
+            i == 0 || _messages[i - 1].createdAt.day != msg.createdAt.day;
+        final isMe = msg.senderId == _myUserId;
 
         return Column(
           children: [
-            if (showDate) _buildDateSeparator(msg.timestamp),
+            if (showDate) _buildDateSeparator(msg.createdAt),
             if (msg.isSystem)
               _SystemMessage(message: msg)
             else
-              _BubbleMessage(message: msg),
+              _BubbleMessage(message: msg, isMe: isMe),
           ],
         );
       },
@@ -237,7 +268,8 @@ class _ChatPageState extends State<ChatPage> {
         color: AppColor.surface,
         border: Border(top: BorderSide(color: AppColor.dividerColor)),
       ),
-      padding: EdgeInsets.fromLTRB(16.w, 10.h, 16.w, 10.h + MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.fromLTRB(
+          16.w, 10.h, 16.w, 10.h + MediaQuery.of(context).viewInsets.bottom),
       child: SafeArea(
         top: false,
         child: Row(
@@ -263,8 +295,8 @@ class _ChatPageState extends State<ChatPage> {
                     hintStyle: AppTextStyle.bodyMedium
                         .copyWith(color: AppColor.textMuted),
                     border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(
-                        horizontal: 16.w, vertical: 10.h),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 16.w, vertical: 10.h),
                   ),
                 ),
               ),
@@ -275,7 +307,7 @@ class _ChatPageState extends State<ChatPage> {
               child: Container(
                 width: 44.w,
                 height: 44.w,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   color: AppColor.teal,
                   shape: BoxShape.circle,
                 ),
@@ -291,10 +323,10 @@ class _ChatPageState extends State<ChatPage> {
 }
 
 class _BubbleMessage extends StatelessWidget {
-  const _BubbleMessage({required this.message});
-  final _Message message;
+  const _BubbleMessage({required this.message, required this.isMe});
 
-  bool get isMe => message.senderId == 'me';
+  final ChatMessageEntity message;
+  final bool isMe;
 
   @override
   Widget build(BuildContext context) {
@@ -306,7 +338,7 @@ class _BubbleMessage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isMe) ...[
-            AppAvatar(name: 'Fatou Seck', size: 28),
+            const AppAvatar(name: 'Autre utilisateur', size: 28),
             SizedBox(width: 6.w),
           ],
           Flexible(
@@ -315,8 +347,8 @@ class _BubbleMessage extends StatelessWidget {
                   isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
                 Container(
-                  padding: EdgeInsets.symmetric(
-                      horizontal: 14.w, vertical: 10.h),
+                  padding:
+                      EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
                   constraints: BoxConstraints(maxWidth: 0.7.sw),
                   decoration: BoxDecoration(
                     color: isMe ? AppColor.teal : AppColor.surface,
@@ -337,7 +369,8 @@ class _BubbleMessage extends StatelessWidget {
                 ),
                 SizedBox(height: 3.h),
                 Text(
-                  '${message.timestamp.hour.toString().padLeft(2, '0')}:${message.timestamp.minute.toString().padLeft(2, '0')}',
+                  '${message.createdAt.hour.toString().padLeft(2, '0')}:'
+                  '${message.createdAt.minute.toString().padLeft(2, '0')}',
                   style: AppTextStyle.labelSmall,
                 ),
               ],
@@ -352,7 +385,7 @@ class _BubbleMessage extends StatelessWidget {
 
 class _SystemMessage extends StatelessWidget {
   const _SystemMessage({required this.message});
-  final _Message message;
+  final ChatMessageEntity message;
 
   @override
   Widget build(BuildContext context) {
@@ -370,20 +403,4 @@ class _SystemMessage extends StatelessWidget {
       ),
     );
   }
-}
-
-class _Message {
-  const _Message({
-    required this.id,
-    required this.text,
-    required this.senderId,
-    required this.timestamp,
-    this.isSystem = false,
-  });
-
-  final String id;
-  final String text;
-  final String senderId;
-  final DateTime timestamp;
-  final bool isSystem;
 }

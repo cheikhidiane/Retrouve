@@ -1,25 +1,39 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:template/core/utils/colors.dart';
 import 'package:template/core/utils/text_styles.dart';
+import 'package:template/features/auth/presentation/blocs/auth_cubit.dart';
+import 'package:template/injector.dart';
 import 'package:template/shared/presentation/widgets/buttons/app_primary_button.dart';
 import 'package:template/shared/presentation/widgets/inputs/app_text_field.dart';
 import 'package:template/shared/presentation/widgets/layout/app_scaffold.dart';
 
-class LoginPage extends StatefulWidget {
+class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (_) => getIt<AuthCubit>(),
+      child: const _LoginView(),
+    );
+  }
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginView extends StatefulWidget {
+  const _LoginView();
+
+  @override
+  State<_LoginView> createState() => _LoginViewState();
+}
+
+class _LoginViewState extends State<_LoginView> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _obscurePassword = true;
-  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -30,43 +44,53 @@ class _LoginPageState extends State<LoginPage> {
 
   void _submit() {
     if (_formKey.currentState?.validate() ?? false) {
-      setState(() => _isLoading = true);
-      Future.delayed(const Duration(seconds: 1), () {
-        if (mounted) {
-          setState(() => _isLoading = false);
-          context.goNamed('home');
-        }
-      });
+      context.read<AuthCubit>().login(
+            email: _emailCtrl.text.trim(),
+            password: _passwordCtrl.text,
+          );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return AppScaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(horizontal: 24.w),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(height: 24.h),
-                _buildHeader(),
-                SizedBox(height: 40.h),
-                _buildForm(),
-                SizedBox(height: 32.h),
-                AppPrimaryButton(
-                  label: 'Se connecter',
-                  onPressed: _submit,
-                  isLoading: _isLoading,
-                ),
-                SizedBox(height: 24.h),
-                _buildDivider(),
-                SizedBox(height: 24.h),
-                _buildRegisterLink(),
-                SizedBox(height: 40.h),
-              ],
+    return BlocListener<AuthCubit, AuthState>(
+      listener: (context, state) {
+        if (state is AuthAuthenticated) {
+          context.goNamed('home');
+        } else if (state is AuthFailure) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(state.message)),
+          );
+        }
+      },
+      child: AppScaffold(
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.symmetric(horizontal: 24.w),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(height: 24.h),
+                  _buildHeader(),
+                  SizedBox(height: 40.h),
+                  _buildForm(),
+                  SizedBox(height: 32.h),
+                  BlocBuilder<AuthCubit, AuthState>(
+                    builder: (context, state) => AppPrimaryButton(
+                      label: 'Se connecter',
+                      onPressed: _submit,
+                      isLoading: state is AuthLoading,
+                    ),
+                  ),
+                  SizedBox(height: 24.h),
+                  _buildDivider(),
+                  SizedBox(height: 24.h),
+                  _buildRegisterLink(),
+                  SizedBox(height: 40.h),
+                ],
+              ),
             ),
           ),
         ),

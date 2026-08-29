@@ -3,14 +3,47 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:template/core/utils/colors.dart';
 import 'package:template/core/utils/text_styles.dart';
+import 'package:template/features/auth/domain/repositories/auth_repository.dart';
+import 'package:template/injector.dart';
 import 'package:template/shared/presentation/widgets/buttons/app_primary_button.dart';
 import 'package:template/shared/presentation/widgets/buttons/app_outlined_button.dart';
 
-class SplashPage extends StatelessWidget {
+class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
 
   @override
+  State<SplashPage> createState() => _SplashPageState();
+}
+
+class _SplashPageState extends State<SplashPage> {
+  bool _checkingSession = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkSession();
+  }
+
+  Future<void> _checkSession() async {
+    final isLoggedIn = await getIt<AuthRepository>().isLoggedIn();
+    if (!mounted) return;
+    if (isLoggedIn) {
+      context.goNamed('home');
+      return;
+    }
+    setState(() => _checkingSession = false);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_checkingSession) {
+      return const Scaffold(
+        backgroundColor: AppColor.background,
+        body: Center(
+          child: CircularProgressIndicator(color: AppColor.teal),
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: AppColor.background,
       body: Stack(

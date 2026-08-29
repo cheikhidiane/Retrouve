@@ -1,38 +1,103 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
+import 'package:template/core/events/data_refresh_bus.dart';
 import 'package:template/core/utils/colors.dart';
 import 'package:template/core/utils/text_styles.dart';
+import 'package:template/features/auth/domain/entities/app_user.dart';
+import 'package:template/features/auth/domain/repositories/auth_repository.dart';
+import 'package:template/features/match/domain/repositories/match_repository.dart';
+import 'package:template/injector.dart';
+import 'package:template/shared/domain/entities/match_entity.dart';
+import 'package:template/shared/domain/entities/item_entity.dart';
+import 'package:template/shared/domain/repositories/item_repository.dart';
 import 'package:template/shared/presentation/widgets/cards/app_card.dart';
 import 'package:template/shared/presentation/widgets/layout/app_scaffold.dart';
 import 'package:template/shared/presentation/widgets/misc/app_avatar.dart';
 
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  AppUser? _user;
+  int _declaredCount = 0;
+  int _matchesCount = 0;
+  int _recoveredCount = 0;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    DataRefreshBus.instance.version.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    DataRefreshBus.instance.version.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() => _load();
+
+  Future<void> _load() async {
+    final user = await getIt<AuthRepository>().getCurrentUser();
+    final allItems = await getIt<ItemRepository>().getAll();
+    final allMatches = await getIt<MatchRepository>().getAll();
+
+    final myItems = user == null
+        ? <ItemEntity>[]
+        : allItems.where((i) => i.ownerId == user.id).toList();
+    final myItemIds = myItems.map((i) => i.id).toSet();
+    final myMatches = allMatches
+        .where((m) =>
+            myItemIds.contains(m.lostItemId) ||
+            myItemIds.contains(m.foundItemId))
+        .toList();
+    final recovered =
+        myMatches.where((m) => m.status == MatchStatus.confirmed).length;
+
+    if (!mounted) return;
+    setState(() {
+      _user = user;
+      _declaredCount = myItems.length;
+      _matchesCount = myMatches.length;
+      _recoveredCount = recovered;
+      _isLoading = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(horizontal: 20.w),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(height: 20.h),
-              _buildHeader(context),
-              SizedBox(height: 24.h),
-              _buildProfileCard(),
-              SizedBox(height: 20.h),
-              _buildStatsRow(),
-              SizedBox(height: 24.h),
-              Text('Mon compte', style: AppTextStyle.headlineSmall),
-              SizedBox(height: 12.h),
-              _buildMenuItems(context),
-              SizedBox(height: 24.h),
-              _buildLogoutButton(context),
-              SizedBox(height: 32.h),
-            ],
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.symmetric(horizontal: 20.w),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(height: 20.h),
+                _buildHeader(context),
+                SizedBox(height: 24.h),
+                _buildProfileCard(),
+                SizedBox(height: 20.h),
+                _buildStatsRow(),
+                SizedBox(height: 24.h),
+                Text('Mon compte', style: AppTextStyle.headlineSmall),
+                SizedBox(height: 12.h),
+                _buildMenuItems(context),
+                SizedBox(height: 24.h),
+                _buildLogoutButton(context),
+                SizedBox(height: 32.h),
+              ],
+            ),
           ),
         ),
       ),
@@ -64,19 +129,20 @@ class ProfilePage extends StatelessWidget {
   }
 
   Widget _buildProfileCard() {
+    final name = _user?.name ?? (_isLoading ? '...' : 'Utilisateur');
+    final email = _user?.email ?? '';
     return AppCard(
       child: Row(
         children: [
-          AppAvatar(name: 'Amadou Diallo', size: 64, showOnline: true, isOnline: true),
+          AppAvatar(name: name, size: 64, showOnline: true, isOnline: true),
           SizedBox(width: 16.w),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Amadou Diallo', style: AppTextStyle.headlineMedium),
+                Text(name, style: AppTextStyle.headlineMedium),
                 SizedBox(height: 4.h),
-                Text('amadou@example.com',
-                    style: AppTextStyle.bodySmall),
+                Text(email, style: AppTextStyle.bodySmall),
                 SizedBox(height: 8.h),
                 Row(
                   children: [
@@ -91,11 +157,6 @@ class ProfilePage extends StatelessWidget {
               ],
             ),
           ),
-          GestureDetector(
-            onTap: () {},
-            child: Icon(Icons.edit_outlined,
-                color: AppColor.textSecondary, size: 20.sp),
-          ),
         ],
       ),
     );
@@ -106,7 +167,7 @@ class ProfilePage extends StatelessWidget {
       children: [
         Expanded(
           child: _StatCard(
-            value: '12',
+            value: '$_declaredCount',
             label: 'Déclarations',
             icon: Icons.list_alt,
             color: AppColor.teal,
@@ -115,7 +176,7 @@ class ProfilePage extends StatelessWidget {
         SizedBox(width: 12.w),
         Expanded(
           child: _StatCard(
-            value: '8',
+            value: '$_matchesCount',
             label: 'Matchs',
             icon: Icons.compare_arrows,
             color: AppColor.appWarning,
@@ -124,7 +185,7 @@ class ProfilePage extends StatelessWidget {
         SizedBox(width: 12.w),
         Expanded(
           child: _StatCard(
-            value: '5',
+            value: '$_recoveredCount',
             label: 'Récupérés',
             icon: Icons.check_circle_outline,
             color: AppColor.appSuccess,
@@ -137,10 +198,11 @@ class ProfilePage extends StatelessWidget {
   Widget _buildMenuItems(BuildContext context) {
     final items = [
       _MenuItem(Icons.list_alt_outlined, 'Mes déclarations',
-          () => context.go('/search')),
+          () => context.pushNamed('my-declarations')),
       _MenuItem(Icons.compare_arrows, 'Mes matchs',
           () => context.pushNamed('dashboard')),
-      _MenuItem(Icons.notifications_outlined, 'Notifications', () {}),
+      _MenuItem(Icons.notifications_outlined, 'Notifications',
+          () => context.pushNamed('notifications')),
       _MenuItem(Icons.security_outlined, 'Sécurité & Confidentialité', () {}),
       _MenuItem(Icons.help_outline, 'Aide & Support', () {}),
     ];
@@ -155,16 +217,15 @@ class ProfilePage extends StatelessWidget {
               GestureDetector(
                 onTap: item.onTap,
                 child: Padding(
-                  padding: EdgeInsets.symmetric(
-                      horizontal: 16.w, vertical: 14.h),
+                  padding:
+                      EdgeInsets.symmetric(horizontal: 16.w, vertical: 14.h),
                   child: Row(
                     children: [
                       Icon(item.icon,
                           color: AppColor.textSecondary, size: 20.sp),
                       SizedBox(width: 12.w),
                       Expanded(
-                        child: Text(item.label,
-                            style: AppTextStyle.bodyMedium),
+                        child: Text(item.label, style: AppTextStyle.bodyMedium),
                       ),
                       Icon(Icons.chevron_right,
                           color: AppColor.textMuted, size: 18.sp),
@@ -187,7 +248,10 @@ class ProfilePage extends StatelessWidget {
 
   Widget _buildLogoutButton(BuildContext context) {
     return GestureDetector(
-      onTap: () => context.go('/'),
+      onTap: () async {
+        await getIt<AuthRepository>().logout();
+        if (context.mounted) context.go('/');
+      },
       child: Container(
         width: double.infinity,
         padding: EdgeInsets.symmetric(vertical: 14.h),
@@ -203,8 +267,7 @@ class ProfilePage extends StatelessWidget {
             SizedBox(width: 8.w),
             Text(
               'Se déconnecter',
-              style: AppTextStyle.labelLarge
-                  .copyWith(color: AppColor.appError),
+              style: AppTextStyle.labelLarge.copyWith(color: AppColor.appError),
             ),
           ],
         ),
@@ -244,7 +307,8 @@ class _StatCard extends StatelessWidget {
             style: AppTextStyle.headlineLarge.copyWith(color: color),
           ),
           SizedBox(height: 2.h),
-          Text(label, style: AppTextStyle.labelSmall, textAlign: TextAlign.center),
+          Text(label,
+              style: AppTextStyle.labelSmall, textAlign: TextAlign.center),
         ],
       ),
     );

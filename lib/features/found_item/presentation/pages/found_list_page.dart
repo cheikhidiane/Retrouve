@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
+import 'package:template/core/events/data_refresh_bus.dart';
 import 'package:template/core/utils/colors.dart';
 import 'package:template/core/utils/text_styles.dart';
+import 'package:template/features/match/domain/repositories/match_repository.dart';
+import 'package:template/injector.dart';
+import 'package:template/shared/domain/entities/item_entity.dart';
+import 'package:template/shared/domain/entities/match_entity.dart';
+import 'package:template/shared/domain/repositories/item_repository.dart';
 import 'package:template/shared/presentation/widgets/cards/item_card.dart';
 import 'package:template/shared/presentation/widgets/inputs/app_text_field.dart';
 import 'package:template/shared/presentation/widgets/layout/app_scaffold.dart';
@@ -19,49 +25,60 @@ class _FoundListPageState extends State<FoundListPage> {
   final _searchCtrl = TextEditingController();
   String? _selectedCategory;
 
+  late Future<_FoundListData> _dataFuture;
+
   static const _categories = [
     'Tout',
-    'Téléphone',
-    'Portefeuille',
+    'Téléphones',
+    'Portefeuilles',
     'Clés',
-    'Sac',
-    'Bijou',
-    'Document',
-  ];
-
-  static final _mockItems = [
-    _MockFoundItem(
-      title: 'iPhone 14 Pro noir',
-      category: 'Téléphone',
-      location: 'Plateau, Dakar',
-      date: 'Hier, 14h30',
-      matchScore: 87,
-    ),
-    _MockFoundItem(
-      title: 'Portefeuille en cuir brun',
-      category: 'Portefeuille',
-      location: 'Almadies, Dakar',
-      date: '23 mai 2026',
-      matchScore: 72,
-    ),
-    _MockFoundItem(
-      title: 'Clés Toyota Corolla',
-      category: 'Clés',
-      location: 'Mermoz, Dakar',
-      date: '22 mai 2026',
-      matchScore: 45,
-    ),
-    _MockFoundItem(
-      title: 'Sac à dos Nike bleu',
-      category: 'Sac',
-      location: 'Université Dakar',
-      date: '21 mai 2026',
-      matchScore: null,
-    ),
+    'Sacs',
+    'Bijoux',
+    'Documents',
+    'Autre',
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _dataFuture = _load();
+    // See HomePage for why this listener is needed: the shell keeps this
+    // page alive across tab switches, so it wouldn't otherwise notice
+    // items/matches added from another tab.
+    DataRefreshBus.instance.version.addListener(_onDataChanged);
+  }
+
+  void _onDataChanged() => _refresh();
+
+  Future<_FoundListData> _load() async {
+    final itemRepository = getIt<ItemRepository>();
+    final matchRepository = getIt<MatchRepository>();
+    final items = await itemRepository.getByKind(ItemKind.found);
+    final matches = await matchRepository.getAll();
+
+    final bestMatchByFoundId = <String, MatchEntity>{};
+    for (final match in matches) {
+      if (match.status != MatchStatus.potential) continue;
+      final current = bestMatchByFoundId[match.foundItemId];
+      if (current == null || match.score > current.score) {
+        bestMatchByFoundId[match.foundItemId] = match;
+      }
+    }
+
+    return _FoundListData(
+      items: items,
+      bestMatchByFoundId: bestMatchByFoundId,
+    );
+  }
+
+  Future<void> _refresh() async {
+    final data = await _load();
+    if (mounted) setState(() => _dataFuture = Future.value(data));
+  }
+
+  @override
   void dispose() {
+    DataRefreshBus.instance.version.removeListener(_onDataChanged);
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -121,23 +138,65 @@ class _FoundListPageState extends State<FoundListPage> {
           ),
           SizedBox(height: 8.h),
           Expanded(
-            child: ListView.separated(
-              padding:
-                  EdgeInsets.symmetric(horizontal: 20.w, vertical: 8.h),
-              itemCount: _mockItems.length,
-              separatorBuilder: (_, __) => SizedBox(height: 12.h),
-              itemBuilder: (_, i) {
-                final item = _mockItems[i];
-                return ItemCard(
-                  title: item.title,
-                  category: item.category,
-                  location: item.location,
-                  date: item.date,
-                  type: ItemType.found,
-                  matchScore: item.matchScore,
-                  onTap: () => context.pushNamed(
-                    'match-potential',
-                    pathParameters: {'id': '$i'},
+            child: FutureBuilder<_FoundListData>(
+              future: _dataFuture,
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: AppColor.teal),
+                  );
+                }
+                final data = snapshot.data!;
+                final query = _searchCtrl.text.trim().toLowerCase();
+                final filtered = data.items.where((item) {
+                  final matchesCategory = _selectedCategory == null ||
+                      item.category == _selectedCategory;
+                  final matchesQuery = query.isEmpty ||
+                      item.title.toLowerCase().contains(query) ||
+                      item.description.toLowerCase().contains(query);
+                  return matchesCategory && matchesQuery;
+                }).toList();
+
+                if (filtered.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 32.w),
+                      child: Text(
+                        'Aucun objet trouvé pour le moment.',
+                        textAlign: TextAlign.center,
+                        style: AppTextStyle.bodyMedium
+                            .copyWith(color: AppColor.textSecondary),
+                      ),
+                    ),
+                  );
+                }
+
+                return RefreshIndicator(
+                  onRefresh: _refresh,
+                  color: AppColor.teal,
+                  child: ListView.separated(
+                    padding:
+                        EdgeInsets.symmetric(horizontal: 20.w, vertical: 8.h),
+                    itemCount: filtered.length,
+                    separatorBuilder: (_, __) => SizedBox(height: 12.h),
+                    itemBuilder: (_, i) {
+                      final item = filtered[i];
+                      final match = data.bestMatchByFoundId[item.id];
+                      return ItemCard(
+                        title: item.title,
+                        category: item.category,
+                        location: item.location,
+                        date: item.date,
+                        type: ItemType.found,
+                        matchScore: match?.score,
+                        onTap: match == null
+                            ? null
+                            : () => context.pushNamed(
+                                  'found-match',
+                                  pathParameters: {'id': match.id},
+                                ),
+                      );
+                    },
                   ),
                 );
               },
@@ -149,18 +208,12 @@ class _FoundListPageState extends State<FoundListPage> {
   }
 }
 
-class _MockFoundItem {
-  const _MockFoundItem({
-    required this.title,
-    required this.category,
-    required this.location,
-    required this.date,
-    this.matchScore,
+class _FoundListData {
+  const _FoundListData({
+    required this.items,
+    required this.bestMatchByFoundId,
   });
 
-  final String title;
-  final String category;
-  final String location;
-  final String date;
-  final int? matchScore;
+  final List<ItemEntity> items;
+  final Map<String, MatchEntity> bestMatchByFoundId;
 }

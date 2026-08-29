@@ -8,7 +8,9 @@ import 'package:template/shared/presentation/widgets/buttons/app_primary_button.
 import 'package:template/shared/presentation/widgets/layout/app_scaffold.dart';
 
 class MatchConfirmedPage extends StatelessWidget {
-  const MatchConfirmedPage({super.key});
+  const MatchConfirmedPage({super.key, this.matchId});
+
+  final String? matchId;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +30,9 @@ class MatchConfirmedPage extends StatelessWidget {
               ),
               SizedBox(height: 12.h),
               Text(
-                'Félicitations ! La vérification a réussi. Vous pouvez maintenant contacter la personne pour récupérer votre objet.',
+                'Félicitations ! La vérification a réussi. Vous pouvez '
+                'maintenant contacter la personne pour récupérer votre '
+                'objet.',
                 style: AppTextStyle.bodyMedium.copyWith(
                   color: AppColor.textSecondary,
                   height: 1.6,
@@ -40,8 +44,18 @@ class MatchConfirmedPage extends StatelessWidget {
               const Spacer(),
               AppPrimaryButton(
                 label: 'Ouvrir la conversation',
-                onPressed: () => context.pushNamed('chat',
-                    pathParameters: {'id': '1'}),
+                onPressed: matchId == null
+                    ? null
+                    : () {
+                        // Same branch-awareness: stay on Recherche's chat
+                        // route if that's where this confirmation came from.
+                        final isFromSearch = GoRouterState.of(context).name ==
+                            'found-match-confirmed';
+                        context.pushNamed(
+                          isFromSearch ? 'found-chat' : 'chat',
+                          pathParameters: {'id': matchId!},
+                        );
+                      },
                 icon: const Icon(Icons.chat_bubble_outline,
                     color: AppColor.background),
               ),
@@ -96,7 +110,7 @@ class MatchConfirmedPage extends StatelessWidget {
       child: Column(
         children: [
           _infoRow(Icons.shield_outlined, 'Identité vérifiée',
-              'Questions secrètes validées'),
+              'Question secrète validée'),
           Divider(color: AppColor.dividerColor, height: 20.h),
           _infoRow(Icons.star_outline, 'Score de confiance',
               'Utilisateur fiable (4.8/5)'),

@@ -5,6 +5,7 @@ import 'package:template/features/auth/presentation/pages/login_page.dart';
 import 'package:template/features/auth/presentation/pages/onboarding_page.dart';
 import 'package:template/features/auth/presentation/pages/register_page.dart';
 import 'package:template/features/auth/presentation/pages/splash_page.dart';
+import 'package:template/features/chat/presentation/pages/conversations_list_page.dart';
 import 'package:template/features/found_item/presentation/pages/declare_found_page.dart';
 import 'package:template/features/found_item/presentation/pages/found_list_page.dart';
 import 'package:template/features/home/presentation/pages/home_page.dart';
@@ -14,6 +15,7 @@ import 'package:template/features/match/presentation/pages/match_confirmed_page.
 import 'package:template/features/match/presentation/pages/match_potential_page.dart';
 import 'package:template/features/notifications/presentation/pages/notifications_page.dart';
 import 'package:template/features/profile/presentation/pages/dashboard_page.dart';
+import 'package:template/features/profile/presentation/pages/my_declarations_page.dart';
 import 'package:template/features/profile/presentation/pages/profile_page.dart';
 import 'package:template/features/verification/presentation/pages/verification_page.dart';
 import 'package:template/shared/presentation/widgets/navigation/main_shell.dart';
@@ -31,8 +33,14 @@ class AppRouter extends Equatable {
   static const verification = 'verification';
   static const foundList = 'found-list';
   static const foundMatch = 'found-match';
+  static const foundVerification = 'found-verification';
+  static const foundMatchConfirmed = 'found-match-confirmed';
+  static const foundChat = 'found-chat';
+  static const messages = 'messages';
+  static const messagesChat = 'messages-chat';
   static const notifications = 'notifications';
   static const profile = 'profile';
+  static const myDeclarations = 'my-declarations';
   static const dashboard = 'dashboard';
   static const chat = 'chat';
 
@@ -92,7 +100,9 @@ GoRouter router([String? initialLocation]) => GoRouter(
                     GoRoute(
                       path: 'match/confirmed',
                       name: AppRouter.matchConfirmed,
-                      builder: (_, __) => const MatchConfirmedPage(),
+                      builder: (_, state) => MatchConfirmedPage(
+                        matchId: state.extra as String?,
+                      ),
                     ),
                     GoRoute(
                       path: 'chat/:id',
@@ -111,7 +121,9 @@ GoRouter router([String? initialLocation]) => GoRouter(
                         GoRoute(
                           path: 'verification',
                           name: AppRouter.verification,
-                          builder: (_, __) => const VerificationPage(),
+                          builder: (_, state) => VerificationPage(
+                            matchId: state.pathParameters['id'],
+                          ),
                         ),
                       ],
                     ),
@@ -129,6 +141,20 @@ GoRouter router([String? initialLocation]) => GoRouter(
                   builder: (_, __) => const FoundListPage(),
                   routes: [
                     GoRoute(
+                      path: 'match/confirmed',
+                      name: AppRouter.foundMatchConfirmed,
+                      builder: (_, state) => MatchConfirmedPage(
+                        matchId: state.extra as String?,
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'chat/:id',
+                      name: AppRouter.foundChat,
+                      builder: (_, state) => ChatPage(
+                        conversationId: state.pathParameters['id'],
+                      ),
+                    ),
+                    GoRoute(
                       path: 'match/:id',
                       name: AppRouter.foundMatch,
                       builder: (_, state) => MatchPotentialPage(
@@ -137,7 +163,10 @@ GoRouter router([String? initialLocation]) => GoRouter(
                       routes: [
                         GoRoute(
                           path: 'verification',
-                          builder: (_, __) => const VerificationPage(),
+                          name: AppRouter.foundVerification,
+                          builder: (_, state) => VerificationPage(
+                            matchId: state.pathParameters['id'],
+                          ),
                         ),
                       ],
                     ),
@@ -146,7 +175,27 @@ GoRouter router([String? initialLocation]) => GoRouter(
               ],
             ),
 
-            // ── Branch 2 : Notifications ──
+            // ── Branch 2 : Messages ──
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/messages',
+                  name: AppRouter.messages,
+                  builder: (_, __) => const ConversationsListPage(),
+                  routes: [
+                    GoRoute(
+                      path: 'chat/:id',
+                      name: AppRouter.messagesChat,
+                      builder: (_, state) => ChatPage(
+                        conversationId: state.pathParameters['id'],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            // ── Branch 3 : Notifications ──
             StatefulShellBranch(
               routes: [
                 GoRoute(
@@ -157,7 +206,7 @@ GoRouter router([String? initialLocation]) => GoRouter(
               ],
             ),
 
-            // ── Branch 3 : Profil ──
+            // ── Branch 4 : Profil ──
             StatefulShellBranch(
               routes: [
                 GoRoute(
@@ -169,6 +218,11 @@ GoRouter router([String? initialLocation]) => GoRouter(
                       path: 'dashboard',
                       name: AppRouter.dashboard,
                       builder: (_, __) => const DashboardPage(),
+                    ),
+                    GoRoute(
+                      path: 'declarations',
+                      name: AppRouter.myDeclarations,
+                      builder: (_, __) => const MyDeclarationsPage(),
                     ),
                   ],
                 ),

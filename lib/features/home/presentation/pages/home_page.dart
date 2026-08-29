@@ -1,44 +1,112 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
+import 'package:template/core/events/data_refresh_bus.dart';
 import 'package:template/core/utils/colors.dart';
 import 'package:template/core/utils/text_styles.dart';
+import 'package:template/features/auth/domain/entities/app_user.dart';
+import 'package:template/features/auth/domain/repositories/auth_repository.dart';
+import 'package:template/features/match/domain/repositories/match_repository.dart';
+import 'package:template/injector.dart';
+import 'package:template/shared/domain/entities/item_entity.dart';
+import 'package:template/shared/domain/entities/match_entity.dart';
+import 'package:template/shared/domain/repositories/item_repository.dart';
 import 'package:template/shared/presentation/widgets/cards/item_card.dart';
 import 'package:template/shared/presentation/widgets/misc/app_avatar.dart';
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  @override
+  void initState() {
+    super.initState();
+    // The bottom-nav shell keeps this page alive across tab switches
+    // (IndexedStack-like), so a bare tab switch won't rerun build() and
+    // pick up new data on its own. Listen for repository mutations
+    // (declared items, matches, ...) and force a rebuild when they occur.
+    DataRefreshBus.instance.version.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    DataRefreshBus.instance.version.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (mounted) setState(() {});
+  }
+
+  // Recomputed on every build (not cached) so returning from
+  // declare-lost/declare-found (which pop/replace back to this page)
+  // always reflects the latest locally persisted data.
+  Future<_HomeData> _load() async {
+    final user = await getIt<AuthRepository>().getCurrentUser();
+    final items = await getIt<ItemRepository>().getAll();
+    final matches = await getIt<MatchRepository>().getAll();
+
+    final bestMatchByItemId = <String, MatchEntity>{};
+    for (final match in matches) {
+      if (match.status != MatchStatus.potential) continue;
+      final currentLost = bestMatchByItemId[match.lostItemId];
+      if (currentLost == null || match.score > currentLost.score) {
+        bestMatchByItemId[match.lostItemId] = match;
+      }
+      final currentFound = bestMatchByItemId[match.foundItemId];
+      if (currentFound == null || match.score > currentFound.score) {
+        bestMatchByItemId[match.foundItemId] = match;
+      }
+    }
+
+    return _HomeData(
+      user: user,
+      recentItems: items.take(5).toList(),
+      bestMatchByItemId: bestMatchByItemId,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColor.background,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(horizontal: 20.w),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(height: 20.h),
-              _buildTopBar(context),
-              SizedBox(height: 20.h),
-              _buildGreeting(context),
-              SizedBox(height: 24.h),
-              Text('Que souhaitez-vous faire ?',
-                  style: AppTextStyle.headlineMedium),
-              SizedBox(height: 16.h),
-              _buildActionCards(context),
-              SizedBox(height: 28.h),
-              _buildRecentSection(context),
-              SizedBox(height: 20.h),
-            ],
-          ),
+        child: FutureBuilder<_HomeData>(
+          future: _load(),
+          builder: (context, snapshot) {
+            final data = snapshot.data;
+            final userName = data?.user?.name ?? 'Utilisateur';
+            return SingleChildScrollView(
+              padding: EdgeInsets.symmetric(horizontal: 20.w),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(height: 20.h),
+                  _buildTopBar(context, userName),
+                  SizedBox(height: 20.h),
+                  _buildGreeting(context, userName),
+                  SizedBox(height: 24.h),
+                  Text('Que souhaitez-vous faire ?',
+                      style: AppTextStyle.headlineMedium),
+                  SizedBox(height: 16.h),
+                  _buildActionCards(context),
+                  SizedBox(height: 28.h),
+                  _buildRecentSection(context, data),
+                  SizedBox(height: 20.h),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
   }
 
-  Widget _buildTopBar(BuildContext context) {
+  Widget _buildTopBar(BuildContext context, String userName) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -74,7 +142,7 @@ class HomePage extends StatelessWidget {
             ),
             SizedBox(width: 8.w),
             AppAvatar(
-              name: 'Amadou Diallo',
+              name: userName,
               size: 36,
               onTap: () => context.go('/profile'),
             ),
@@ -100,15 +168,14 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildGreeting(BuildContext context) {
+  Widget _buildGreeting(BuildContext context, String userName) {
     return Row(
       children: [
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Bonjour, Amadou A. 👋',
-                  style: AppTextStyle.headlineLarge),
+              Text('Bonjour, $userName 👋', style: AppTextStyle.headlineLarge),
               SizedBox(height: 4.h),
               Row(
                 children: [
@@ -124,7 +191,7 @@ class HomePage extends StatelessWidget {
           ),
         ),
         AppAvatar(
-          name: 'Amadou Diallo',
+          name: userName,
           size: 44,
           showOnline: true,
           isOnline: true,
@@ -158,7 +225,8 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildRecentSection(BuildContext context) {
+  Widget _buildRecentSection(BuildContext context, _HomeData? data) {
+    final items = data?.recentItems ?? const <ItemEntity>[];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -170,60 +238,67 @@ class HomePage extends StatelessWidget {
               onTap: () => context.go('/search'),
               child: Text(
                 'Voir tout',
-                style: AppTextStyle.labelMedium
-                    .copyWith(color: AppColor.teal),
+                style: AppTextStyle.labelMedium.copyWith(color: AppColor.teal),
               ),
             ),
           ],
         ),
         SizedBox(height: 16.h),
-        ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _mockItems.length,
-          separatorBuilder: (_, __) => SizedBox(height: 12.h),
-          itemBuilder: (_, i) {
-            final item = _mockItems[i];
-            return ItemCard(
-              title: item.title,
-              category: item.category,
-              location: item.location,
-              date: item.date,
-              type: item.type,
-              onTap: () => context.pushNamed(
-                'match-potential',
-                pathParameters: {'id': '$i'},
-              ),
-            );
-          },
-        ),
+        if (data == null)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(color: AppColor.teal),
+            ),
+          )
+        else if (items.isEmpty)
+          Text(
+            'Aucune annonce pour le moment. Déclarez un objet perdu ou '
+            'trouvé pour commencer !',
+            style:
+                AppTextStyle.bodyMedium.copyWith(color: AppColor.textSecondary),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: items.length,
+            separatorBuilder: (_, __) => SizedBox(height: 12.h),
+            itemBuilder: (_, i) {
+              final item = items[i];
+              final match = data.bestMatchByItemId[item.id];
+              return ItemCard(
+                title: item.title,
+                category: item.category,
+                location: item.location,
+                date: item.date,
+                type:
+                    item.kind == ItemKind.lost ? ItemType.lost : ItemType.found,
+                matchScore: match?.score,
+                onTap: match == null
+                    ? null
+                    : () => context.pushNamed(
+                          'match-potential',
+                          pathParameters: {'id': match.id},
+                        ),
+              );
+            },
+          ),
       ],
     );
   }
+}
 
-  static final _mockItems = [
-    _MockItem(
-      title: 'iPhone 14 Pro noir',
-      category: 'Téléphone',
-      location: 'Plateau, Dakar',
-      date: 'Hier, 14h30',
-      type: ItemType.found,
-    ),
-    _MockItem(
-      title: 'Portefeuille en cuir',
-      category: 'Accessoire',
-      location: 'Almadies, Dakar',
-      date: '23 mai 2026',
-      type: ItemType.lost,
-    ),
-    _MockItem(
-      title: 'Clés de voiture Toyota',
-      category: 'Clés',
-      location: 'Mermoz, Dakar',
-      date: '22 mai 2026',
-      type: ItemType.found,
-    ),
-  ];
+class _HomeData {
+  const _HomeData({
+    required this.user,
+    required this.recentItems,
+    required this.bestMatchByItemId,
+  });
+
+  final AppUser? user;
+  final List<ItemEntity> recentItems;
+  final Map<String, MatchEntity> bestMatchByItemId;
 }
 
 class _ActionCard extends StatelessWidget {
@@ -273,20 +348,4 @@ class _ActionCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _MockItem {
-  const _MockItem({
-    required this.title,
-    required this.category,
-    required this.location,
-    required this.date,
-    required this.type,
-  });
-
-  final String title;
-  final String category;
-  final String location;
-  final String date;
-  final ItemType type;
 }
